@@ -1,6 +1,5 @@
 use std::error::Error;
 use std::io::Read;
-use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Keyword {
@@ -65,9 +64,9 @@ pub struct TypeDef {
 }
 
 #[derive(Debug, Clone)]
-pub struct Ratio<'a> {
-    pub first: &'a Table,
-    pub second: Option<&'a Table>,
+pub struct Ratio {
+    pub first: Table,
+    pub second: Option<Table>,
     pub ratio: Specifier
 }
 
@@ -85,13 +84,13 @@ pub struct Property {
 }
 
 #[derive(Debug, Clone)]
-pub struct Schema<'a> {
+pub struct Schema {
     pub type_defs: Vec<TypeDef>,
-    pub ratios: Vec<Ratio<'a>>,
+    pub ratios: Vec<Ratio>,
     pub tables: Vec<Table>
 }
 
-impl<'a> Schema<'a> {
+impl Schema {
     pub fn contains_typedef(&self, name: &str) -> Option<&TypeDef> {
         self.type_defs
             .iter()
@@ -194,19 +193,13 @@ pub fn lex_file(path: &str) -> Result<Vec<Token>, Box<dyn Error>> {
     Ok(tokens)
 }
 
-fn contains_type_def<'a>(type_defs: &'a Vec<TypeDef>, name: &'_ str) -> Option<&'a TypeDef> {
-    type_defs.iter().find(|td| td.name == name)
-}
-
-fn contains_table<'a>(tables: &'a Vec<Table>, name: &'_ str) -> Option<usize> {
-    tables.iter().position(|t| t.name == name)
-}
-
 #[allow(unused_assignments)]
-pub fn parse_tokens<'a>(tokens: Vec<Token>) -> Result<Schema<'a>, Box<dyn Error>> {
-    let mut type_defs: Vec<TypeDef> = Vec::new();
-    let mut ratios: Vec<Ratio> = Vec::new();
-    let mut tables: Vec<Table> = Vec::new();
+pub fn parse_tokens(tokens: Vec<Token>) -> Result<Schema, Box<dyn Error>> {
+    let mut schema = Schema {
+        type_defs: Vec::new(),
+        ratios: Vec::new(),
+        tables: Vec::new()
+    };
 
     for mut idx in 0..tokens.len() {
         // From tokens[idx]...
@@ -233,7 +226,7 @@ pub fn parse_tokens<'a>(tokens: Vec<Token>) -> Result<Schema<'a>, Box<dyn Error>
                 data_type: d
             };
 
-            type_defs.push(data_type);
+            schema.type_defs.push(data_type);
 
             continue;
         }
@@ -261,10 +254,10 @@ pub fn parse_tokens<'a>(tokens: Vec<Token>) -> Result<Schema<'a>, Box<dyn Error>
                     None
                 };
 
-                let data_type = if let Some(data_type) = contains_type_def(&type_defs, data_type) {
+                let data_type = if let Some(data_type) = schema.contains_typedef(data_type) {
                     data_type.data_type.clone()
-                } else if let Some(table_index) = contains_table(&tables, data_type) {
-                    let table = &tables[table_index];
+                } else if let Some(table) = schema.contains_table(data_type) {
+                    // TODO: this should be a reference, not a clone
                     DataType::ForeignKey(Box::new(table.clone()), Box::new(table.primary_key.clone()))
                 } else {
                     DataType::parse_from_string(data_type.clone(), specifier)?
@@ -289,7 +282,7 @@ pub fn parse_tokens<'a>(tokens: Vec<Token>) -> Result<Schema<'a>, Box<dyn Error>
                     primary_key
                 };
 
-                tables.push(table);
+                schema.tables.push(table);
             } else {
                 panic!("Table must have primary key");
             }
@@ -301,8 +294,7 @@ pub fn parse_tokens<'a>(tokens: Vec<Token>) -> Result<Schema<'a>, Box<dyn Error>
         if let [ Token::Word(first), Token::RatioDecl, .. ] = &tokens[idx..] {
             idx += 2;
 
-            let first_index = contains_table(&tables, first).expect("Ratio must have valid first table");
-            let first = &tables[first_index];
+            let first = schema.contains_table(first).expect("Ratio must have valid first table");
 
             if let [ Token::OpenParen, Token::Number(start), .. ] = &tokens[idx..] {
                 idx += 2;
@@ -320,17 +312,16 @@ pub fn parse_tokens<'a>(tokens: Vec<Token>) -> Result<Schema<'a>, Box<dyn Error>
                 };
 
                 let ratio = Ratio {
-                    first, 
+                    first: first.clone(), 
                     second: None,
                     ratio
                 };
 
-                ratios.push(ratio);
+                schema.ratios.push(ratio);
             } else if let [ Token::Word(second), Token::OpenParen, Token::Number(start), .. ] = &tokens[idx..] {
                 idx += 3;
 
-                let second_index = contains_table(&tables, second).expect("Ratio must have valid second table");
-                let second = &tables[second_index];
+                let second = schema.contains_table(second).expect("Ratio must have valid second table");
 
                 let ratio = if let [ Token::CloseParen, .. ] = &tokens[idx..] {
                     idx += 1;
@@ -345,23 +336,19 @@ pub fn parse_tokens<'a>(tokens: Vec<Token>) -> Result<Schema<'a>, Box<dyn Error>
                 };
 
                 let ratio = Ratio {
-                    first, 
-                    second: Some(second),
+                    first: first.clone(), 
+                    second: Some(second.clone()),
                     ratio
                 };
 
-                ratios.push(ratio);
+                schema.ratios.push(ratio);
             } else {
                 panic!("Invalid ratio syntax");
             }
         }
     }
 
-    Ok(Schema {
-        type_defs,
-        ratios,
-        tables
-    })
+    Ok(schema)
 }
 
 #[cfg(test)]
