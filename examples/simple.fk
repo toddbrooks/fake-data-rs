@@ -1,0 +1,25 @@
+# TypeDefs
+type AdultAge int(18..70)
+type ChildAge int(0..17)
+
+# Tables 
+table Parent {
+    # Properties
+    +id = GUIDv4
+    first = FirstName
+    last = LastName
+    age = AdultAge
+    country = CountryISO
+}
+
+table Child {
+    +id = GUIDv4
+    first = FirstName
+    last = LastName
+    age = ChildAge
+    parent = Parent
+}
+
+# Ratios
+Parent->(10)
+Parent->Child(0..3)
